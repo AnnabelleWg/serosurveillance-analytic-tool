@@ -1,0 +1,710 @@
+---
+title: "serosurveillance analytic tool"
+author: "Annabelle Wang"
+date: "2024-02-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+#install.library("stringr") 
+library(readxl)
+library(tidyr)
+library(dplyr)
+library(purrr)
+library(stringr)
+
+#######Additionall Supplementary Codes####################################################
+#If need to install and poen packages from GitHub
+  install.packages("devtools")
+  library(devtools)
+  #install_github("author/package")
+  
+# If need to install and open packages from Bioconductor (open source software for Bioinfomatics )
+  source("http://bioconductor.org/biocLite.R")
+  biocLite()
+  biocLite("GenomicFeatures")
+  
+#To update all packages
+  update.packages()
+#To update one package only
+  install.packages("packagename")
+
+#To unload certain package
+  detach("package:ggplot2", unload=TRUE)
+#To remove certain package
+  remove.packages("packagename")
+  
+#To check the version of R you are running
+  sessionInfo()
+
+#To get extra details on how to use a package
+  browseVignettes("stringr")
+  
+```
+
+#Version Control
+(aka. records changes that are made to a file or a set of files over time. As you make edits, the version control system takes snapshots of your files and the changes and then saves those snapshots so you can refer, revert back to previous versions later if need be.)
+ 
+  #GitHub Terminologies
+  #[Repository]: Files are hosted in [repository] that is shared online with collaborators
+  #[Pull]: You [pull] the repository's contents so that you have a local copy of the files that you can edit. 
+  #[Stage] & [Commit]: Once you are happy with your changes to a file, you [stage] the file and then [commit] it.
+  #[Push]: You [push] this [commit] to the shared repository. This uploads your new file and all of the changes and is accompanied by a message explaining what changed, why and by whom
+  
+  #Merge: when independent edits are identified by Git and are brought together into a single file with both sets of edits incorporated into a single unified file. 
+The version control history tracks independent changes made to both the original file in the repository that others may be editing and tracking your changes on your branch and then merges the files together. 
+
+  #Conflict: If both people made an edit to the same sentence that precludes one of the edit from being possible (i.e. Git is unable to merge the edits.), we have a conflict.
+  Git recognizes this disparity, conflict and asks for user assistance in picking which edit to keep. 
+  
+  #Configuring Git:To link GitHub with R,go to git-scm.com/download to download and install Git on your computer. -->need to tell Git what your username and email are, so that it knows how to name each commit as coming from you. To do so, in the command prompt (either Git Bash for Windows or Terminal for Mac), type: git config --global user.name "Jane Doe" with your desired username in place of “Jane Doe.” --> Following this, in the command prompt, type: git config --global user.email janedoe@gmail.com
+  
+  #Comfirming your configuration: to check, confirm your changes by typing: git config --list
+  
+# linking an existing R proejct with GitHub
+  #Part 1: Linking an preexisting R project with Git
+  #1. Right click the folder containing your R project and choose 'New terminal at Folder'
+  #2. In terminal,type [ git init ] followed by [ git add .]
+    
+  
+```{r}
+
+
+
+```
+
+# Import and clean the original terms:
+
+```{r}
+#getwd()
+
+######################Import specific Excel sheet:
+orig_term <- read_excel("/Users/aw/Downloads/IDD/R tools/Antigen taxonomy.xlsx")
+#tags<- read_excel("/Users/aw/Downloads/IDD/R tools/Antigen taxonomy.xlsx", sheet = "Covidence Tags") 
+tags<- read_excel("/Users/aw/Downloads/IDD/R tools/Antigen taxonomy.xlsx", sheet = "Covidence Tags new") 
+
+
+######################Clean Sheet 1: 
+#names(orig_term) #get column names
+clean_term <- orig_term[, c(2, 18, 19, 20, 21, 22)] #only keep 6 variables of interest: Biomarker, Common Name of Disease, Scientific  Names of pathogen, Other names, MeSh terms, Entry terms
+
+#convert blank cell to NA
+clean_term <- clean_term %>% mutate_all(na_if,"")
+#clean blank rows
+clean_term <- clean_term %>% 
+                filter(!if_all(c(everything()), is.na)) 
+clean_term <- clean_term %>%
+  mutate(across(everything(), ~ifelse(str_trim(.) == "", NA, .))) #to change all columns at once; remove the white space from start and end of string, re-code columns ???
+clean_term <- clean_term %>% 
+  drop_na(Biomarker)  # drop rows with missing values for biomarker
+
+
+######################Clean Sheet Covidence Tags new: 
+#recode values
+#tags_new<-tags_new%>%mutate(Tag1=recode(Tag1,"Entric"="Enteric"))
+tags<-tags%>%select(1:9)
+
+```
+
+# Search terms for Luminex: 
+
+```{r}
+Luminex_terms <- paste('
+(((“Multiplex”[tw] OR “Multiplexed”[tw] OR “Simultaneous Quantitative Detection*“[tw] OR “multiple”[tw] OR “integrated”[tw])
+AND
+(“Immunoassay”[Mesh:NoExp] OR “Immunoassay*“[tw] OR “Immuno-assay*“[tw] OR “Fluoroimmunoassay”[Mesh:NoExp] OR “Fluoroimmunoassay*“[tw] OR “Fluoroimmuno-assay*“[tw] OR “Immunofluorometric Assay*“[tw] OR “Immuno-fluorometric Assay*“[tw] OR ((“Bead*“[tw] OR “Microspheres”[Mesh] OR “Microsphere*“[tw] OR “Micro-Sphere*“[tw]  OR “Microbead*“[tw] OR “Latex Particle*“[tw] OR “Latex Sphere*“[tw] OR “Serological”[tw] OR “Serologic”[tw] OR “antibody”[tw] OR “antibodies”[tw]) AND “assay”[tw]))) OR
+“Luminex”[tw] OR “Bead-Based Assay*“[tw] OR “Serosurveillance”[tw] OR “Serological Surveillance*“[tw] OR “Serologic Surveillance*“[tw] OR “microsphere immunoassay”[tw] OR (“validation”[tw] AND “serological”[tw]) OR “seroepidemiology”[tw] OR (“Serolog*“[tw] AND “Surveillance”[tw]) ) AND (1990:2023[pdat]) AND (excludepreprints[Filter])')
+
+
+#OR "Serological"[tw] OR "Serologic"[tw] 
+```
+
+# Functions for process every cell and combine to a search term:
+
+```{r}
+# Functions for extract terms from cell contents:
+
+# Process function for Biomarker/Common/Scientific/Other names:
+process_terms <- function(cell_content) {
+  # Extract terms within parentheses
+  terms_in_parentheses <- gregexpr("\\(([^)]+)\\)", cell_content, perl = TRUE)
+  additional_terms <- regmatches(cell_content, terms_in_parentheses)[[1]]
+  additional_terms <- gsub("\\(|\\)", "", additional_terms) # Remove parentheses
+
+  # Remove parentheses and content within from the original string
+  cell_content <- gsub("\\(.*?\\)", "", cell_content)
+
+  # Split by semicolon 
+  terms <- unlist(strsplit(cell_content, ";\\s*"))
+  terms <- tolower(trimws(terms))
+  additional_terms <- unlist(strsplit(additional_terms, ";\\s*"))
+  additional_terms <- tolower(trimws(additional_terms))
+
+  unique(c(terms, additional_terms))
+}
+
+# Process function for Mesh terms:
+process_mesh <- function(cell_content) {
+  cell_content <- as.character(cell_content)
+  # Split by '//' 
+  terms <- unlist(strsplit(cell_content, "//\\s*"))
+  terms <- trimws(terms)
+
+  unique(terms)
+}
+
+# Process function for entry terms:
+process_entry_terms <- function(cell_content) {
+  cell_content <- as.character(cell_content)
+  # Split by new line
+  terms <- unlist(strsplit(cell_content, "\n|//\\s*"))
+  terms <- tolower(trimws(terms))
+  unique(terms)
+}
+
+# Function to format terms in a cell
+format_terms <- function(terms) {
+  #unique_terms <- unique(terms) # Remove duplicated terms in every cell
+  formatted_terms <- sapply(terms, function(term) paste0('"', term, '"'))
+  paste(formatted_terms, collapse = "\n")
+}
+
+# Process and format terms for each row vector
+#use \n to force a new line
+process_row_all_vector <- function(row_vector) {
+  tibble(
+    pathogen = row_vector["Biomarker"],
+    #mesh_new = list(format_terms(process_mesh(unlist(strsplit(row_vector["MeSH terms"], "\n"))))),
+    MeSH_new = list(format_terms(na.omit(unique(process_mesh(unlist(strsplit(row_vector["MeSH terms"], "\n"))))))),
+    Entry_new = list(format_terms(na.omit(unique(c(
+      #process_terms(unlist(strsplit(row_vector["Biomarker"], "\n"))),
+      #process_terms(unlist(strsplit(row_vector["Common Name of Disease"], "\n"))),
+      process_terms(unlist(strsplit(row_vector["Scientific Name of Pathogen"], "\n"))),
+      #process_terms(unlist(strsplit(row_vector["Other names"], "\n"))),
+      process_entry_terms(unlist(strsplit(row_vector["Entry terms"], "\n")))
+    )))))
+  )
+}
+
+# Function to create search term from a row
+create_search_term <- function(mesh_terms, entry_terms) {
+  # Remove NA and empty strings
+  mesh_terms <- mesh_terms[!is.na(mesh_terms) & mesh_terms != ""]
+  entry_terms <- entry_terms[!is.na(entry_terms) & entry_terms != ""]
+  
+  # Create search terms with [Mesh] and [tw] if they are not empty
+  mesh_search_with_Mesh <- if (length(mesh_terms) > 0) paste(paste0(mesh_terms, "[Mesh]"), collapse = " OR ") else NULL
+  mesh_search_with_tw <- if (length(mesh_terms) > 0) paste(paste0(mesh_terms, "[tw]"), collapse = " OR ") else NULL
+  entry_search_with_tw <- if (length(entry_terms) > 0) paste(paste0(entry_terms, "[tw]"), collapse = " OR ") else NULL
+
+  # Combine mesh and entry searches with OR, if they exist
+  full_search <- paste(na.omit(c(mesh_search_with_Mesh, mesh_search_with_tw, entry_search_with_tw)), collapse = " OR ")
+  return(full_search)
+}
+
+
+```
+
+#Functions to generate disease-specific table with formatted MeSH and entry terms and search terms
+```{r}
+#Functions for customixed choice of tag or pathogen combinations
+custSearch<-function(pathogen=NULL, Tag1=NULL, Tag1_sub=NULL,Tag2=NULL){
+  
+  
+  
+}
+
+#Function for customized choice of tag combinations and selection of specific tag for eqch tag type
+searchterms_tagComb<-function(Tag1=NULL, Tag1_sub=NULL, Tag2=NULL){
+  
+  # Filter the targeted tag
+  
+  # Start with filtering by Tag1
+  tag1 <- as.vector(tag1)
+  tag_data <- tags %>% filter(`Tag1` %in% tag1)
+   tag_name = paste(gsub(" ", "_", tag1), collapse = "_") #perform replacement of all matches with gsub(pattern, replacement, strings_to_search, ignore.case=FLASE)
+   
+}
+
+#Function for produce tag-specific tables with formated MeSH and entry terms
+Table4disease<-function(x){
+  #uses another dataset(i.e.x)to perform filtering
+  x_terms<- clean_term %>%
+  semi_join(x, by = c("Scientific Name of Pathogen" = "Pathogen"))  
+  
+  # Transfer the dataset to vector
+list_of_x <- lapply(seq_len(nrow(x_terms)), function(i) {
+  unlist(x_terms[i, ])
+})
+  # Process all vectors
+processed_x <- map_df(list_of_x, process_row_all_vector)
+combined_x <- left_join( processed_x, clean_term, by = c( "pathogen" = "Biomarker"))
+combined_x_formatted <- combined_x %>%
+  mutate(across(where(is.list), ~sapply(., function(x) paste(x, collapse = "\n"))))%>% 
+  filter(!is.na(pathogen))
+write.csv(combined_x_formatted, paste0("/Users/aw/Downloads/IDD/R tools/serosurveillance analytic tool/Serosurveillance analytic tool 2/","search_terms.csv")) 
+}
+
+
+
+#Function for produce tag-specific search terms
+SearchT4disease<-function(x){
+#Part1: function for produce tag-specific tables#############################
+  #uses another dataset(i.e.x)to perform filtering
+  x_terms<- clean_term %>%
+  semi_join(x, by = c("Scientific Name of Pathogen" = "Pathogen"))  
+  
+  # Transfer the dataset to vector
+list_of_x <- lapply(seq_len(nrow(x_terms)), function(i) {
+  unlist(x_terms[i, ])
+})
+  # Process all vectors
+processed_x <- map_df(list_of_x, process_row_all_vector)
+combined_x <- left_join( processed_x, clean_term, by = c( "pathogen" = "Biomarker"))
+combined_x_formatted <- combined_x %>%
+  mutate(across(where(is.list), ~sapply(., function(x) paste(x, collapse = "\n"))))%>% 
+  filter(!is.na(pathogen))
+
+#Part2: Get the search term##################################################
+  # Apply the function to mesh and entry terms of each row
+x_search_terms <- lapply(1:nrow(combined_x_formatted), function(i) {
+  mesh_terms <- strsplit(combined_x_formatted$MeSH_new[i], "\n")[[1]]
+  entry_terms <- strsplit(combined_x_formatted$Entry_new[i], "\n")[[1]]
+  create_search_term(mesh_terms, entry_terms)
+})
+  # Flatten, deduplicate, and concatenate all search terms
+flat_search_terms <- unique(na.omit(unlist(x_search_terms)))
+x_search_term <- paste(flat_search_terms, collapse = " OR ")
+  # Print and save the final search term
+cat(x_search_term)
+writeLines(x_search_term, "/Users/aw/Downloads/IDD/R tools/serosurveillance analytic tool/Serosurveillance analytic tool 2/_Search_terms.txt")
+  # Print and save the final search term (with Luminex terms)
+Lmnx_x_search_term <- paste(Luminex_terms, " AND (", x_search_term, ")")
+#cat(Lmnx_final_search_term)
+writeLines(Lmnx_x_search_term,paste0("/Users/aw/Downloads/IDD/R tools/serosurveillance analytic tool/Serosurveillance analytic tool 2/", tag_name, "_search_terms.txt"))
+}
+```
+
+
+#Produce disease-specific datasets
+```{r}
+#Get separate data sets for each specific value in Tag1
+Tag1_gp<-unique(tags_new$Tag1) # a vector of different Tag1
+Tag1Sub_gp<-unique(tags_new$`Tag1 subgroup`[!is.na(tags_new$`Tag1 subgroup`)])
+Tag2_gp<-unique(tags_new$Tag2)#%>%as.list()
+
+#function 
+for (i in 1:length(Tag1_gp)){
+  assign(paste0(Tag1_gp[i]),tags_new%>%filter(Tag1==Tag1_gp[i]),envir=.GlobalEnv)
+}
+
+#Get separate data sets based Tag1_subgroup
+for (j in 1:length(Tag1Sub_gp)){
+      assign(paste0(Tag1Sub_gp[j]),tags_new%>%filter(`Tag1 subgroup`==Tag1Sub_gp[j]),envir=.GlobalEnv)}
+   
+
+#Get separate data sets based Tag2
+for (i in 1:length(Tag2_gp)){
+     assign(paste0(Tag1_gp[i],"_",Tag2_gp[i]),tags_new%>%filter(Tag2==Tag2_gp[i],envir=.GlobalEnv))
+    }
+
+#Get separate data sets based Tag1 and Tag2
+group_tag1_2<-function(x, Tag2_gp){
+  sapply(Tag2_gp,
+        for (k in 1:length(Tag2_gp)){
+     assign(paste0(x[1,1],"_",Tag2_gp[k]), x%>%filter(Tag2==Tag2_gp[k]),envir=.GlobalEnv)
+    })
+}
+
+group_tag1_2<-function(x){ for(k  in 1:length(Tag2_gp)){assign(paste0(x[1,1],"_",Tag2_gp[k]), x%>%filter(Tag2==Tag2_gp[k]),envir=.GlobalEnv)} }
+
+lapply(Tag2_gp,group_tag1_2(VPD))
+
+group_tag1_2(VPD,Tag2_gp)
+group_tag1_2(Enteric,Tag2_gp)
+
+VPD_split_tag2<-VPD%>%
+  group_split(Tag2)
+names(VPD_split_tag2)<-VPD_split_tag2%>% #Assign to names of listed data frames
+  #extract the names by doing the following to each data frame:
+  map(.)
+  
+```
+
+
+# Generate new tables and search terms for the specific group of pathogen
+```{r}
+ Table4disease(EPItest)
+SearchT4disease(EPItest)
+```
+
+
+##############################
+# The first tag : VPD
+```{r}
+# uses another dataset(i.e.VPD) not to add rows or columns, but to perform filtering.
+VPD_terms<- clean_term %>%
+  semi_join(VPD, by = c("Scientific Name of Pathogen" = "Pathogen"))   
+
+# Get a new table for the specific tag with new Mesh and entry terms
+
+# Transfer the dataset to vector
+list_of_VPD <- lapply(seq_len(nrow(VPD_terms)), function(i) {
+  unlist(VPD_terms[i, ])
+})
+
+# Process all vectors
+processed_VPD <- map_df(list_of_VPD, process_row_all_vector)
+
+combined_VPD <- left_join( processed_VPD, clean_term, by = c( "pathogen" = "Biomarker"))
+combined_VPD_formatted <- combined_VPD %>%
+  mutate(across(where(is.list), ~sapply(., function(x) paste(x, collapse = "\n"))))%>% 
+  filter(!is.na(pathogen))
+write.csv(combined_VPD_formatted, "/Users/aw/Downloads/IDD/R tools/serosurveillance analytic tool/VPD_search_terms.csv")
+
+#combined_new <- clean_term
+#combined_new <- left_join(combined_new, processed_VPD, by = c("Biomarker" = "pathogen"))
+#combined_new_formatted <- combined_new %>%
+ # mutate(across(where(is.list), ~sapply(., function(x) paste(x, collapse = "\n"))))%>% 
+  #filter(!is.na(Biomarker))
+#print(combined_new_formatted)
+
+# Get the search term
+
+# Apply the function to mesh and entry terms of each row
+all_search_terms <- lapply(1:nrow(combined_VPD_formatted), function(i) {
+  mesh_terms <- strsplit(combined_VPD_formatted$MeSH_new[i], "\n")[[1]]
+  entry_terms <- strsplit(combined_VPD_formatted$Entry_new[i], "\n")[[1]]
+  create_search_term(mesh_terms, entry_terms)
+})
+# Flatten, deduplicate, and concatenate all search terms
+flat_search_terms <- unique(na.omit(unlist(all_search_terms)))
+final_search_term <- paste(flat_search_terms, collapse = " OR ")
+
+# Print and save the final search term
+cat(final_search_term)
+writeLines(final_search_term, "/Users/aw/Downloads/IDD/R tools/serosurveillance analytic tool/Search_terms_VPD.txt")
+# Print and save the final search term (with Luminex terms)
+Lmnx_final_search_term <- paste(Luminex_terms, " AND (", final_search_term, ")")
+#cat(Lmnx_final_search_term)
+writeLines(Lmnx_final_search_term, "/Users/aw/Downloads/IDD/R tools/serosurveillance analytic tool/Search_terms_VPD_Lmnx.txt")
+
+```
+
+#The second tag : Enteric
+```{r}
+# uses another dataset(i.e.VPD) not to add rows or columns, but to perform filtering.
+Enteric_terms<- clean_term %>%
+  semi_join(Enteric, by = c("Scientific Name of Pathogen" = "Pathogen"))   
+
+# Get a new table for the specific tag with new Mesh and entry terms
+
+# Transfer the dataset to vector
+list_of_Enteric <- lapply(seq_len(nrow(Enteric_terms)), function(i) {
+  unlist(Enteric_terms[i, ])
+})
+
+# Process all vectors
+processed_Enteric <- map_df(list_of_Enteric, process_row_all_vector)
+
+combined_Enteric <- left_join( processed_Enteric, clean_term, by = c( "pathogen" = "Biomarker"))
+combined_Enteric_formatted <- combined_Enteric %>%
+  mutate(across(where(is.list), ~sapply(., function(x) paste(x, collapse = "\n"))))%>% 
+  filter(!is.na(pathogen))
+write.csv(combined_Enteric_formatted, "/Users/aw/Downloads/IDD/R tools/serosurveillance analytic tool/Enteric_search_terms.csv")
+
+# Get the search term
+
+# Apply the function to mesh and entry terms of each row
+all_search_terms <- lapply(1:nrow(combined_Enteric_formatted), function(i) {
+  mesh_terms <- strsplit(combined_Enteric_formatted$MeSH_new[i], "\n")[[1]]
+  entry_terms <- strsplit(combined_Enteric_formatted$Entry_new[i], "\n")[[1]]
+  create_search_term(mesh_terms, entry_terms)
+})
+# Flatten, deduplicate, and concatenate all search terms
+flat_search_terms <- unique(na.omit(unlist(all_search_terms)))
+final_search_term <- paste(flat_search_terms, collapse = " OR ")
+# Print and save the final search term
+cat(final_search_term)
+writeLines(final_search_term, "/Users/aw/Downloads/IDD/R tools/serosurveillance analytic tool/Search_terms_Enteric.txt")
+# Print and save the final search term (with Luminex terms)
+Lmnx_final_search_term <- paste(Luminex_terms, " AND (", final_search_term, ")")
+#cat(Lmnx_final_search_term)
+writeLines(Lmnx_final_search_term, "/Users/aw/Downloads/IDD/R tools/serosurveillance analytic tool/Search_terms_Enteric_Lmnx.txt")
+```
+
+#The third tag : NTD
+```{r}
+# uses another dataset(i.e.VPD) not to add rows or columns, but to perform filtering.
+NTD_terms<- clean_term %>%
+  semi_join(NTDs, by = c("Scientific Name of Pathogen" = "Pathogen"))   
+
+# Get a new table for the specific tag with new Mesh and entry terms
+
+# Transfer the dataset to vector
+list_of_NTD <- lapply(seq_len(nrow(NTD_terms)), function(i) {
+  unlist(NTD_terms[i, ])
+})
+
+# Process all vectors
+processed_NTD <- map_df(list_of_NTD, process_row_all_vector)
+
+combined_NTD <- left_join( processed_NTD, clean_term, by = c( "pathogen" = "Biomarker"))
+combined_NTD_formatted <- combined_NTD %>%
+  mutate(across(where(is.list), ~sapply(., function(x) paste(x, collapse = "\n"))))%>% 
+  filter(!is.na(pathogen))
+write.csv(combined_NTD_formatted, "/Users/aw/Downloads/IDD/R tools/serosurveillance analytic tool/NTD_search_terms.csv")
+
+# Get the search term
+
+# Apply the function to mesh and entry terms of each row
+all_search_terms <- lapply(1:nrow(combined_NTD_formatted), function(i) {
+  mesh_terms <- strsplit(combined_NTD_formatted$MeSH_new[i], "\n")[[1]]
+  entry_terms <- strsplit(combined_NTD_formatted$Entry_new[i], "\n")[[1]]
+  create_search_term(mesh_terms, entry_terms)
+})
+# Flatten, deduplicate, and concatenate all search terms
+flat_search_terms <- unique(na.omit(unlist(all_search_terms)))
+final_search_term <- paste(flat_search_terms, collapse = " OR ")
+# Print and save the final search term
+cat(final_search_term)
+writeLines(final_search_term, "/Users/aw/Downloads/IDD/R tools/serosurveillance analytic tool/Search_terms_NTD.txt")
+```
+
+#The forth tag : Vector
+```{r}
+# uses another dataset(i.e.VPD) not to add rows or columns, but to perform filtering.
+Vector_terms<- clean_term %>%
+  semi_join(Vector, by = c("Scientific Name of Pathogen" = "Pathogen"))   
+
+# Get a new table for the specific tag with new Mesh and entry terms
+
+# Transfer the dataset to vector
+list_of_Vector <- lapply(seq_len(nrow(Vector_terms)), function(i) {
+  unlist(Vector_terms[i, ])
+})
+
+# Process all vectors
+processed_Vector <- map_df(list_of_Vector, process_row_all_vector)
+
+combined_Vector <- left_join( processed_Vector, clean_term, by = c( "pathogen" = "Biomarker"))
+combined_Vector_formatted <- combined_Vector %>%
+  mutate(across(where(is.list), ~sapply(., function(x) paste(x, collapse = "\n"))))%>% 
+  filter(!is.na(pathogen))
+write.csv(combined_Vector_formatted, "/Users/aw/Downloads/IDD/R tools/serosurveillance analytic tool/Vector_search_terms.csv")
+
+# Get the search term
+
+# Apply the function to mesh and entry terms of each row
+all_search_terms <- lapply(1:nrow(combined_Vector_formatted), function(i) {
+  mesh_terms <- strsplit(combined_Vector_formatted$MeSH_new[i], "\n")[[1]]
+  entry_terms <- strsplit(combined_Vector_formatted$Entry_new[i], "\n")[[1]]
+  create_search_term(mesh_terms, entry_terms)
+})
+# Flatten, deduplicate, and concatenate all search terms
+flat_search_terms <- unique(na.omit(unlist(all_search_terms)))
+final_search_term <- paste(flat_search_terms, collapse = " OR ")
+# Print and save the final search term
+cat(final_search_term)
+writeLines(final_search_term, "/Users/aw/Downloads/IDD/R tools/serosurveillance analytic tool/Search_terms_Vector.txt")
+```
+
+#The fifth tag : Sti
+```{r}
+# uses another dataset(i.e.VPD) not to add rows or columns, but to perform filtering.
+Sti_terms<- clean_term %>%
+  semi_join(Sti, by = c("Scientific Name of Pathogen" = "Pathogen"))   
+
+# Get a new table for the specific tag with new Mesh and entry terms
+
+# Transfer the dataset to vector
+list_of_Sti <- lapply(seq_len(nrow(Sti_terms)), function(i) {
+  unlist(Sti_terms[i, ])
+})
+
+# Process all vectors
+processed_Sti <- map_df(list_of_Sti, process_row_all_vector)
+
+combined_Sti <- left_join( processed_Sti, clean_term, by = c( "pathogen" = "Biomarker"))
+combined_Sti_formatted <- combined_Sti %>%
+  mutate(across(where(is.list), ~sapply(., function(x) paste(x, collapse = "\n"))))%>% 
+  filter(!is.na(pathogen))
+write.csv(combined_Sti_formatted, "/Users/aw/Downloads/IDD/R tools/serosurveillance analytic tool/Sti_search_terms.csv")
+
+# Get the search term
+
+# Apply the function to mesh and entry terms of each row
+all_search_terms <- lapply(1:nrow(combined_Sti_formatted), function(i) {
+  mesh_terms <- strsplit(combined_Sti_formatted$MeSH_new[i], "\n")[[1]]
+  entry_terms <- strsplit(combined_Sti_formatted$Entry_new[i], "\n")[[1]]
+  create_search_term(mesh_terms, entry_terms)
+})
+# Flatten, deduplicate, and concatenate all search terms
+flat_search_terms <- unique(na.omit(unlist(all_search_terms)))
+final_search_term <- paste(flat_search_terms, collapse = " OR ")
+# Print and save the final search term
+cat(final_search_term)
+writeLines(final_search_term, "/Users/aw/Downloads/IDD/R tools/serosurveillance analytic tool/Search_terms_Sti.txt")
+```
+
+#The sixth tag : Respiratory
+```{r}
+# uses another dataset(i.e.VPD) not to add rows or columns, but to perform filtering.
+Respiratory_terms<- clean_term %>%
+  semi_join(Respiratory, by = c("Scientific Name of Pathogen" = "Pathogen"))   
+
+# Get a new table for the specific tag with new Mesh and entry terms
+
+# Transfer the dataset to vector
+list_of_Respiratory <- lapply(seq_len(nrow(Respiratory_terms)), function(i) {
+  unlist(Respiratory_terms[i, ])
+})
+
+# Process all vectors
+processed_Respiratory <- map_df(list_of_Respiratory, process_row_all_vector)
+
+combined_Respiratory <- left_join( processed_Respiratory, clean_term, by = c( "pathogen" = "Biomarker"))
+combined_Respiratory_formatted <- combined_Respiratory %>%
+  mutate(across(where(is.list), ~sapply(., function(x) paste(x, collapse = "\n"))))%>% 
+  filter(!is.na(pathogen))
+write.csv(combined_Respiratory_formatted, "/Users/aw/Downloads/IDD/R tools/serosurveillance analytic tool/Respiratory_search_terms.csv")
+
+# Get the search term
+
+# Apply the function to mesh and entry terms of each row
+all_search_terms <- lapply(1:nrow(combined_Respiratory_formatted), function(i) {
+  mesh_terms <- strsplit(combined_Respiratory_formatted$MeSH_new[i], "\n")[[1]]
+  entry_terms <- strsplit(combined_Respiratory_formatted$Entry_new[i], "\n")[[1]]
+  create_search_term(mesh_terms, entry_terms)
+})
+# Flatten, deduplicate, and concatenate all search terms
+flat_search_terms <- unique(na.omit(unlist(all_search_terms)))
+final_search_term <- paste(flat_search_terms, collapse = " OR ")
+# Print and save the final search term
+cat(final_search_term)
+writeLines(final_search_term, "/Users/aw/Downloads/IDD/R tools/serosurveillance analytic tool/Search_terms_Respiratory.txt")
+```
+
+
+#The seventh tag : Emerging
+```{r}
+# uses another dataset(i.e.VPD) not to add rows or columns, but to perform filtering.
+Emerging_terms<- clean_term %>%
+  semi_join(Emerging, by = c("Scientific Name of Pathogen" = "Pathogen"))   
+
+# Get a new table for the specific tag with new Mesh and entry terms
+
+# Transfer the dataset to vector
+list_of_Emerging <- lapply(seq_len(nrow(Emerging_terms)), function(i) {
+  unlist(Emerging_terms[i, ])
+})
+
+# Process all vectors
+processed_Emerging <- map_df(list_of_Emerging, process_row_all_vector)
+
+combined_Emerging <- left_join( processed_Emerging, clean_term, by = c( "pathogen" = "Biomarker"))
+combined_Emerging_formatted <- combined_Emerging %>%
+  mutate(across(where(is.list), ~sapply(., function(x) paste(x, collapse = "\n"))))%>% 
+  filter(!is.na(pathogen))
+write.csv(combined_Emerging_formatted, "/Users/aw/Downloads/IDD/R tools/serosurveillance analytic tool/Emerging_search_terms.csv")
+
+# Get the search term
+
+# Apply the function to mesh and entry terms of each row
+all_search_terms <- lapply(1:nrow(combined_Emerging_formatted), function(i) {
+  mesh_terms <- strsplit(combined_Emerging_formatted$MeSH_new[i], "\n")[[1]]
+  entry_terms <- strsplit(combined_Emerging_formatted$Entry_new[i], "\n")[[1]]
+  create_search_term(mesh_terms, entry_terms)
+})
+# Flatten, deduplicate, and concatenate all search terms
+flat_search_terms <- unique(na.omit(unlist(all_search_terms)))
+final_search_term <- paste(flat_search_terms, collapse = " OR ")
+# Print and save the final search term
+cat(final_search_term)
+writeLines(final_search_term, "/Users/aw/Downloads/IDD/R tools/serosurveillance analytic tool/Search_terms_Emerging.txt")
+```
+
+
+#The fifth tag : Other
+```{r}
+# uses another dataset(i.e.VPD) not to add rows or columns, but to perform filtering.
+Other_terms<- clean_term %>%
+  semi_join(Other, by = c("Scientific Name of Pathogen" = "Pathogen"))   
+
+# Get a new table for the specific tag with new Mesh and entry terms
+
+# Transfer the dataset to vector
+list_of_Other <- lapply(seq_len(nrow(Other_terms)), function(i) {
+  unlist(Other_terms[i, ])
+})
+
+# Process all vectors
+processed_Other <- map_df(list_of_Other, process_row_all_vector)
+
+combined_Other <- left_join( processed_Other, clean_term, by = c( "pathogen" = "Biomarker"))
+combined_Other_formatted <- combined_Other %>%
+  mutate(across(where(is.list), ~sapply(., function(x) paste(x, collapse = "\n"))))%>% 
+  filter(!is.na(pathogen))
+write.csv(combined_Other_formatted, "/Users/aw/Downloads/IDD/R tools/serosurveillance analytic tool/Other_search_terms.csv")
+
+# Get the search term
+
+# Apply the function to mesh and entry terms of each row
+all_search_terms <- lapply(1:nrow(combined_Other_formatted), function(i) {
+  mesh_terms <- strsplit(combined_Other_formatted$MeSH_new[i], "\n")[[1]]
+  entry_terms <- strsplit(combined_Other_formatted$Entry_new[i], "\n")[[1]]
+  create_search_term(mesh_terms, entry_terms)
+})
+# Flatten, deduplicate, and concatenate all search terms
+flat_search_terms <- unique(na.omit(unlist(all_search_terms)))
+final_search_term <- paste(flat_search_terms, collapse = " OR ")
+# Print and save the final search term
+cat(final_search_term)
+writeLines(final_search_term, "/Users/aw/Downloads/IDD/R tools/serosurveillance analytic tool/Search_terms_Other.txt")
+```
+
+# Trash cood
+```{r}
+##############################################
+# re-code value
+#VPD<-tags_filled%>%
+#  filltr(Tag=="VPD")
+#VPD<-VPD%>% mutate(Tag_subgroup=recode(Tag_subgroup,
+#                                       #for reference old = new
+#                                      "13 childhood EPI VPDs (WHO Recommendations)"="EPI VPDs") )
+# Population tag_subgroup with the corresponding group
+#VPD<-VPD%>%
+#  mutate(Tag_subgroup=ifelse(str_trim(Tag_subgroup)=="",NA,Tag_subgroup))%>%
+#  fill(Tag_subgroup, .direction = "down")
+
+##############################################
+
+######################Clean Sheet Covidence Tags: 
+#rename colume names
+colnames(tags)[6]="Tag_subgroup"
+#remove blank columns
+tags<-tags %>% 
+  select(-c(5,7))
+#recode values
+tags<-tags%>% mutate(Tag_subgroup=recode(Tag_subgroup,"13 childhood EPI VPDs (WHO Recommendations)"="EPI VPDs") )
+
+#convert blank cell to NA
+tags <- tags %>% mutate_all(na_if,"")
+#clean blank rows
+tags <- tags %>% 
+                filter(!if_all(c(everything()), is.na)) 
+tags <- tags %>%
+  mutate(across(everything(), ~ifelse(str_trim(.) == "", NA, .)))
+# drop rows with missing values for Pathogen
+#tags <- tags %>% 
+#  drop_na(Pathogen)  # drop rows with missing values for biomarker
+
+tags_filled <- tags %>%
+  mutate(Tag = ifelse(str_trim(Tag) == "", NA, Tag))%>%
+  fill(Tag, .direction = "down") # Populate tags with the corresponding group
+```
