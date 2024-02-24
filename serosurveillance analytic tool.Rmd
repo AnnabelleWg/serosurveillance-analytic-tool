@@ -66,13 +66,22 @@ The version control history tracks independent changes made to both the original
   
   #Comfirming your configuration: to check, confirm your changes by typing: git config --list
   
+# linking an existing R proejct with GitHub
+  #Part 1: Linking an preexisting R project with Git
+  #1. Right click the folder containing your R project and choose 'New terminal at Folder'
+  #2. In terminal,tap [ git init ] followed by [ git add .]
+  #3. To commit these changes to Git, tap [git commit -m "Initial commit" ]
   
-```{r}
-
-
-
-```
-
+  #Part 2: :Linking this project with GitHUb  
+  #1. go to GitHub.com and creat a new repository
+  *Make sure the name is the 'exact name' as your R project
+  *Do NOT initialize a README file, .gitignore, or license.
+  
+  #2. Upon creating the repository, you should see a section named ' ...or push an existing respository from the command line'
+  #3.  In Git Bash or Terminal, copy and paste these lines of code to link your repository with GitHub.
+  #4. After doing so, refresh your GitHub page
+  #5. When you reoopen the R project, you should now have access to the Git tab in the upper right quadrant and can push to GitHub from within RStudio any future changes.
+  
 # Import and clean the original terms:
 
 ```{r}
